@@ -1,0 +1,73 @@
+meraki:
+  domains:
+    - name: EU
+      administrator:
+        name: admin
+      organizations:
+        - name: Meraki Learning Lab
+          managed: true
+          networks:
+            - name: Rotterdam-Network-1
+              product_types:
+                - appliance
+                - switch
+                - wireless
+              time_zone: Europe/Amsterdam
+              notes: cleu_network_notes
+              tags:
+                - cleu
+              settings:
+                local_status_page_enabled: true
+                remote_status_page: true
+                secure_port: false
+                local_status_page_authentication:
+                  username: cleu_user
+                  password: !env secret_password
+                named_vlans: true
+              snmp:
+                access: users
+                users:
+                  - username: cleu_user
+                    passphrase: !env secret_password
+              syslog_servers:
+                - host: 1.2.3.4
+                  port: 514
+                  roles:
+                    - Switch Event log
+                    - Air Marshal events
+                    - Flows
+                    - URLs
+                    - Wireless Event log
+                    - Appliance Event log
+            - name: Eindhoven-Network-1
+              product_types:
+                - appliance
+                - switch
+                - wireless
+              time_zone: Europe/Amsterdam
+              notes: cleu_network_notes
+              tags:
+                - cleu
+              settings:
+                local_status_page_enabled: true
+                remote_status_page: true
+                secure_port: false
+                local_status_page_authentication:
+                  username: cleu_user
+                  password: !env secret_password
+                named_vlans: true
+              snmp:
+                access: users
+                users:
+                  - username: cleu_user
+                    passphrase: !env secret_password
+              syslog_servers:
+                - host: 1.2.3.4
+                  port: 514
+                  roles:
+                    - Switch Event log
+                    - Air Marshal events
+                    - Flows
+                    - URLs
+                    - Wireless Event log
+                    - Appliance Event log

@@ -1,0 +1,17 @@
+meraki:
+  domains:
+    - name: EU
+      administrator:
+        name: root
+      organizations:
+        - name: Meraki Learning Lab
+          managed: true
+          admins:
+          - name: Learning Lab user
+            email: !env org_email
+            organization_access: full
+          login_security:
+            enforce_password_expiration: false
+            password_expiration_days: 1095
+            enforce_different_passwords: true
+            num_different_passwords: 3

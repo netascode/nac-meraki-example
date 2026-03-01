@@ -1,0 +1,58 @@
+meraki:
+  domains:
+    - name: EU
+      administrator:
+        name: admin
+      organizations:
+        - name: Meraki Learning Lab
+          managed: true
+          networks:
+            - name: Amsterdam-Network-1
+              wireless:
+                settings:
+                  upgrade_strategy: minimizeUpgradeTime
+                  meshing: false
+                ssids:
+                  - name: Corp
+                    auth_mode: 8021x-radius
+                    available_on_all_aps: true
+                    band_selection: Dual band operation with Band Steering
+                    default_vlan_id: 10
+                    dot11r:
+                      enabled: true
+                    dot11w:
+                      enabled: true
+                      required: false
+                    enabled: true             
+                    encryption_mode: wpa-eap
+                    firewall_l3_firewall_rules:
+                      allow_lan_access: true
+                    ip_assignment_mode: Bridge mode
+                    lan_isolation: false
+                    radius:
+                      accounting: true
+                      accounting_servers:
+                        - host: 2.3.4.5
+                          port: 1813
+                          secret: !env secret_password
+                        - host: 2.3.4.6
+                          port: 1813
+                          secret: !env secret_password
+                      attribute_for_group_policies: Filter-Id
+                      coa: false
+                      override: true
+                      servers:
+                        - host: 2.3.4.5
+                          port: 1812
+                          secret: !env secret_password
+                        - host: 2.3.4.6
+                          port: 1812
+                          secret: !env secret_password
+                      testing: true
+                    ssid_number: '0'
+                    traffic_shaping_rules:
+                      traffic_shaping: true
+                      default_rules: true
+                    use_vlan_tagging: true
+                    visible: true
+                    wpa_encryption_mode: WPA2 only

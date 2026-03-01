@@ -1,0 +1,43 @@
+meraki:
+  domains:
+    - name: EU
+      administrator:
+        name: admin
+      organizations:
+        - name: Meraki Learning Lab
+          managed: true
+          networks:
+            - name: Amsterdam-Network-1
+              switch:
+                access_policies:
+                  - name: "Wired Access Policy"
+                    radius_servers:
+                      - host: 2.3.4.5
+                        port: 1812
+                        secret: !env secret_password
+                    radius_accounting_servers:
+                      - host: 2.3.4.5
+                        port: 1813
+                        secret: !env secret_password
+                    radius_accounting: true
+                    radius_coa_support: true
+                    radius_testing: true
+                    radius_group_attribute: "11"
+                    host_mode: Multi-Auth
+                    voice_vlan_clients: true
+                    access_policy_type: Hybrid authentication
+                    radius:
+                      re_authentication_interval: 86400
+                    dot1x_control_direction: both
+                    url_redirect_walled_garden: false
+                settings:
+                  vlan: 999
+                  use_combined_power: false
+                  uplink_client_sampling: true
+                  mac_blocklist: false
+                mtu:
+                  default_mtu_size: 9126
+                routing_multicast:
+                  default_settings:
+                    igmp_snooping: true
+                    flood_unknown_multicast_traffic: false                         

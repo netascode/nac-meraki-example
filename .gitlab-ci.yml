@@ -1,0 +1,325 @@
+image: danischm/nac:0.1.6
+
+stages:
+  - prepare
+  - validate
+  - plan
+  - deploy
+  - test-integration
+  - test-idempotency
+  - notify
+
+variables:
+  GIT_SSL_NO_VERIFY: "true"
+  SSL_CERT_DIR: /etc/gitlab-runner/ssl
+  GIT_TEMPLATE_DIR: "/tmp/git-template-$CI_JOB_ID"
+  GIT_STRATEGY: clone
+  GITLAB_TOKEN:
+    description: "User Access Token. Used to create comments on Merge Requests"
+  TF_HTTP_USERNAME:
+    value: "gitlab-ci-token"
+  TF_HTTP_PASSWORD:
+    value: "${CI_JOB_TOKEN}"
+  WEBEX_ROOM_ID: ""
+  WEBEX_TOKEN: ""
+  GITLAB_API_URL:
+    value: "${CI_API_V4_URL}"
+  TF_HTTP_ADDRESS:
+    value: "${GITLAB_API_URL}/projects/${CI_PROJECT_ID}/terraform/state/tfstate"
+  TF_HTTP_LOCK_ADDRESS:
+    value: ${TF_HTTP_ADDRESS}/lock
+  TF_HTTP_LOCK_METHOD: "POST"
+  TF_HTTP_UNLOCK_ADDRESS:
+    value: ${TF_HTTP_ADDRESS}/lock
+  TF_HTTP_UNLOCK_METHOD: "DELETE"
+
+before_script:
+  - mkdir -p "$GIT_TEMPLATE_DIR"
+
+cache:
+  key: terraform_modules_and_lock
+  paths:
+    - .terraform
+    - .terraform.lock.hcl
+
+# -------------------------------------------------------
+# PREPARE (MR + main)
+# -------------------------------------------------------
+prepare:
+  stage: prepare
+  variables:
+    DATA_DIR: "data/"
+    WORKSPACES_DIR: "workspaces/"
+    BRANCH_VARIABLES_FILE: "data/08_branch_variables.nac.yaml"
+    MERGED_CONFIG_FILE: "workspaces/merged_configuration.nac.yaml"
+  rules:
+    - if: $CI_MERGE_REQUEST_ID           # Run on MR
+    - if: $CI_COMMIT_BRANCH == "main"    # Run on main
+  script:
+    - |
+      # Check if branch_variables file exists
+      if [ ! -f "${BRANCH_VARIABLES_FILE}" ]; then
+        echo "branch_variables file not found. Skipping prepare stage."
+        exit 0
+      fi
+    - terraform -chdir="${WORKSPACES_DIR}" init || { echo "terraform init failed."; exit 1; }
+    - terraform -chdir="${WORKSPACES_DIR}" apply -auto-approve || { echo "terraform apply failed."; exit 1; }
+    - |
+      if [ ! -f "${MERGED_CONFIG_FILE}" ]; then
+        echo "merged_configuration.nac.yaml not found!"
+        exit 1
+      else
+        echo "merged_configuration.nac.yaml created successfully."
+      fi
+  artifacts:
+    paths:
+      - ${MERGED_CONFIG_FILE}
+    when: always
+    expire_in: 1 week
+
+# -------------------------------------------------------
+# VALIDATE (MR + main)
+# -------------------------------------------------------
+validate:
+  stage: validate
+  needs: [prepare]
+  variables:
+    DATA_DIR: "data"
+    WORKSPACES_DIR: "./workspaces"
+    MERGED_CONFIG_FILE: "./workspaces/merged_configuration.nac.yaml"
+  rules:
+    - if: $CI_MERGE_REQUEST_ID
+    - if: $CI_COMMIT_BRANCH == "main"
+  script:
+    - echo "Checking Terraform formatting..."
+    - terraform fmt -check | tee fmt_output.txt
+    - |
+        if grep -qE '\.tf' fmt_output.txt; then
+          echo "One or more Terraform files are not formatted correctly."
+          exit 1
+        else
+          echo "All Terraform files are properly formatted."
+        fi
+
+    - echo "Checking for NAC YAML files..."
+    - |
+        NAC_FILES=""
+
+        # Find NAC files in DATA_DIR, excluding specific ones
+        DATA_NAC_FILES=$(find "${DATA_DIR}" -type f -name "*.nac.yaml" \
+          ! -name "08_*.nac.yaml" \
+          ! -name "07_*.nac.yaml" 2>/dev/null)
+
+        if [ -n "${DATA_NAC_FILES}" ]; then
+          NAC_FILES="${NAC_FILES} ${DATA_NAC_FILES}"
+        fi
+
+        # Include merged configuration file if it exists
+        if [ -f "${MERGED_CONFIG_FILE}" ]; then
+          NAC_FILES="${NAC_FILES} ${MERGED_CONFIG_FILE}"
+        fi
+
+        # Trim whitespace
+        NAC_FILES=$(echo "${NAC_FILES}" | xargs)
+
+        if [ -z "${NAC_FILES}" ]; then
+          echo "No .nac.yaml files found (after exclusions). Skipping nac-validate."
+          echo "SKIPPED: No .nac.yaml files found" > validate_output.txt
+        else
+          echo "✓ Validating NAC YAML files:"
+          printf '  %s\n' ${NAC_FILES}
+
+          nac-validate ${NAC_FILES} -s schema.yaml -r rules/ --non-strict | tee validate_output.txt
+
+          if grep -q "ERROR" validate_output.txt; then
+            exit 1
+          fi
+        fi
+
+  artifacts:
+    paths:
+      - fmt_output.txt
+      - validate_output.txt
+    when: always
+
+# -------------------------------------------------------
+# PLAN (MR + main)
+# -------------------------------------------------------
+plan:
+  stage: plan
+  needs: [validate]
+  rules:
+    - if: $CI_MERGE_REQUEST_ID
+    - if: $CI_COMMIT_BRANCH == "main"
+  resource_group: meraki
+  script:
+    - rm -rf .terraform/modules
+    - terraform get -update
+    - terraform init -input=false
+    - terraform plan -out=plan.tfplan -input=false
+    - terraform show -no-color plan.tfplan > plan.txt
+    - terraform show -json plan.tfplan | jq > plan.json
+    - terraform show -json plan.tfplan | jq '([.resource_changes[]?.change.actions?]|flatten)|{"create":(map(select(.=="create"))|length),"update":(map(select(.=="update"))|length),"delete":(map(select(.=="delete"))|length)}' > plan_gitlab.json
+    - cat .terraform/modules/modules.json | jq '[.Modules[] | {Key, Source, Version}]' > modules.json
+    - python3 .ci/gitlab-comment.py
+  artifacts:
+    paths:
+      - plan.json
+      - plan.txt
+      - plan.tfplan
+      - plan_gitlab.json
+      - modules.json
+    reports:
+      terraform: plan_gitlab.json
+
+# -------------------------------------------------------
+# DEPLOY (main only)
+# -------------------------------------------------------
+deploy:
+  stage: deploy
+  needs: [plan]
+  resource_group: meraki
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  script:
+    - terraform init -input=false
+    - terraform apply -input=false -auto-approve plan.tfplan
+    - terraform show -no-color plan.tfplan > plan.txt
+  artifacts:
+    paths:
+      - defaults.yaml
+      - plan.tfplan
+      - plan.txt
+
+# -------------------------------------------------------
+# TEST (main only)
+# -------------------------------------------------------
+test-integration:
+  stage: test-integration
+  needs: [deploy, prepare]
+  variables:
+    DATA_DIR: "data"
+    WORKSPACES_DIR: "workspaces"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  script:
+    - |
+        set -o pipefail
+        TESTS_RAN=0
+
+        # ---------------------------------------------------------
+        # TEST 1: data/ directory (excluding 07_* and 08_* files)
+        # ---------------------------------------------------------
+        if [ -d "${DATA_DIR}" ]; then
+          DATA_FILES=$(find "${DATA_DIR}" -maxdepth 1 -type f -name "*.nac.yaml" \
+            ! -name "07_*.nac.yaml" \
+            ! -name "08_*.nac.yaml" 2>/dev/null)
+
+          if [ -n "$DATA_FILES" ]; then
+            echo "Running nac-test against ${DATA_DIR} (excluding 07_* and 08_*)..."
+            nac-test -d "${DATA_DIR}" \
+              -t ./tests/templates \
+              -o ./tests/results \
+              --exclude "07_*.nac.yaml" \
+              --exclude "08_*.nac.yaml" |& tee test_output_data.txt
+
+            if grep -q "ERROR" test_output_data.txt; then
+              echo "nac-test failed for ${DATA_DIR}"
+              exit 1
+            fi
+            TESTS_RAN=1
+          else
+            echo "No eligible .nac.yaml files in ${DATA_DIR} (after exclusions)."
+          fi
+        fi
+
+        # ---------------------------------------------------------
+        # TEST 2: workspaces/merged_configuration (no exclusions)
+        # ---------------------------------------------------------
+        MERGED_DIR="${WORKSPACES_DIR}"
+        if [ -d "${MERGED_DIR}" ]; then
+          MERGED_FILES=$(find "${MERGED_DIR}" -maxdepth 1 -type f -name "*.nac.yaml" 2>/dev/null)
+
+          if [ -n "$MERGED_FILES" ]; then
+            echo "Running nac-test against ${MERGED_DIR}..."
+            nac-test -d "${MERGED_DIR}" \
+              -t ./tests/templates \
+              -o ./tests/results_merged |& tee test_output_merged.txt
+
+            if grep -q "ERROR" test_output_merged.txt; then
+              echo "nac-test failed for ${MERGED_DIR}"
+              exit 1
+            fi
+            TESTS_RAN=1
+          else
+            echo "No .nac.yaml files in ${MERGED_DIR}."
+          fi
+        fi
+
+        # ---------------------------------------------------------
+        # Summary
+        # ---------------------------------------------------------
+        if [ "$TESTS_RAN" -eq 0 ]; then
+          echo "SKIPPED: No eligible .nac.yaml files found" > test_output.txt
+        else
+          echo "All nac-test runs completed successfully."
+        fi
+  artifacts:
+    paths:
+      - tests/results/*.html
+      - tests/results/xunit.xml
+      - tests/results_merged/*.html
+      - tests/results_merged/xunit.xml
+      - test_output*.txt
+    reports:
+      junit:
+        - tests/results/xunit.xml
+        - tests/results_merged/xunit.xml
+
+test-idempotency:
+  stage: test-idempotency
+  needs: [deploy, test-integration]
+  resource_group: meraki
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  script:
+    - terraform init -input=false
+    - |
+      set +e
+      terraform plan -input=false -out=idempotency.tfplan -detailed-exitcode
+      exit_code=$?
+      set -e
+
+      terraform show -no-color idempotency.tfplan > idempotency_plan.txt
+      terraform show -json idempotency.tfplan | jq '.' > idempotency_plan.json
+
+      if [ "$exit_code" -eq 2 ]; then
+        echo "Idempotency test failed — changes detected!"
+        exit 1
+      elif [ "$exit_code" -eq 0 ]; then
+        echo "Idempotent, no changes detected."
+      else
+        echo "Terraform plan failed with exit code $exit_code"
+        exit $exit_code
+      fi
+  artifacts:
+    paths:
+      - idempotency_plan.txt
+      - idempotency.tfplan
+
+# -------------------------------------------------------
+# NOTIFY (MR + main)
+# -------------------------------------------------------
+failure:
+  stage: notify
+  script:
+    - python3 .ci/webex-notification-gitlab.py -f
+  when: on_failure
+  cache: []
+
+success:
+  stage: notify
+  script:
+    - python3 .ci/webex-notification-gitlab.py -s
+  when: on_success
+  cache: []

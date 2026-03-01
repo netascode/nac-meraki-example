@@ -1,0 +1,405 @@
+meraki:
+  templates:
+    networks:
+      - name: nw_setup_mgmt
+        type: model
+        configuration:
+          product_types:
+            - appliance
+            - switch
+            - wireless
+            - cellularGateway
+          time_zone: ${time_zone}
+          notes: ${network_notes}
+          tags:
+            - cleu_branch
+          settings:
+            local_status_page_enabled: true
+            remote_status_page: true
+            secure_port: false
+            local_status_page_authentication:
+              username: ${local_page_username}
+              password: !env secret_password
+            named_vlans: true
+          snmp:
+            access: users
+            users:
+              - username: ${snmp_username}
+                passphrase: !env secret_password
+          syslog_servers:
+            - host: ${syslog_server}
+              port: ${syslog_port}
+              roles:
+                - Switch Event log
+                - Air Marshal events
+                - Flows
+                - URLs
+                - Wireless Event log
+                - Appliance Event log
+      - name: switch
+        type: model
+        configuration:
+          switch:
+            access_policies:
+              - name: 'Wired Access Policy'
+                radius_servers:
+                  - host: ${radius_server1_host}
+                    port: ${radius_server1_port}
+                    secret: !env secret_password
+                radius_accounting_servers:
+                  - host: ${radius_accounting_server1_host}
+                    port: ${radius_accounting_server1_port}
+                    secret: !env secret_password
+                radius_accounting: true
+                radius_coa_support: true
+                radius_testing: true
+                radius_group_attribute: '11'
+                host_mode: Single-Host
+                voice_vlan_clients: true
+                access_policy_type: Hybrid authentication
+                radius:
+                  re_authentication_interval: 86400
+                dot1x_control_direction: both
+                url_redirect_walled_garden: false
+            settings:
+              vlan: 999
+              use_combined_power: false
+              uplink_client_sampling: true
+              mac_blocklist: false
+            mtu:
+              default_mtu_size: ${switch_mtu_size}
+            routing_multicast:
+              default_settings:
+                igmp_snooping: true
+                flood_unknown_multicast_traffic: false
+            dscp_to_cos_mappings:
+              - cos: 0
+                dscp: 8
+                title: Scavenger CS1
+              - cos: 0
+                dscp: 10
+                title: Bulk AF11
+              - cos: 0
+                dscp: 12
+                title: Bulk AF12
+              - cos: 0
+                dscp: 14
+                title: Bulk AF13
+              - cos: 1
+                dscp: 0
+                title: Default CS0
+              - cos: 2
+                dscp: 16
+                title: Network Mgmt CS2
+              - cos: 2
+                dscp: 18
+                title: Transactional Data AF21
+              - cos: 2
+                dscp: 20
+                title: Transactional Data AF22
+              - cos: 2
+                dscp: 22
+                title: Transactional Data AF23
+              - cos: 2
+                dscp: 24
+                title: Signaling CS3
+              - cos: 3
+                dscp: 26
+                title: Multimedia Streaming AF31
+              - cos: 3
+                dscp: 28
+                title: Multimedia Streaming AF32
+              - cos: 3
+                dscp: 30
+                title: Multimedia Streaming AF33
+              - cos: 3
+                dscp: 40
+                title: Broadcast Video CS5
+              - cos: 4
+                dscp: 32
+                title: Realtime Interactive CS4
+              - cos: 4
+                dscp: 34
+                title: Multimedia Conferencing AF41
+              - cos: 4
+                dscp: 36
+                title: Multimedia Conferencing AF42
+              - cos: 4
+                dscp: 38
+                title: Multimedia Conferencing AF43
+              - cos: 5
+                dscp: 44
+                title: Admission-Controlled Voice EF
+              - cos: 5
+                dscp: 46
+                title: Voice EF
+              - cos: 5
+                dscp: 48
+                title: Internetwork Control CS6
+              - cos: 5
+                dscp: 56
+                title: Network Control CS7
+            qos_rules:
+              - vlan: 20
+                protocol: ANY
+                dscp: -1
+                qos_rule_name: Trust_DSCP_Voice_VLAN
+              - vlan: 30
+                protocol: ANY
+                dscp: -1
+                qos_rule_name: Remark_Guest_to_Default
+              - vlan: 10
+                protocol: UDP
+                source_port_range: 16384-32767
+                destination_port_range: 16385-32767
+                dscp: 46
+                qos_rule_name: Voice_to_EF_Data_VLAN
+              - vlan: 10
+                protocol: ANY
+                dscp: -1
+                qos_rule_name: Other_to_Default_Data_VLAN
+      - name: wireless
+        type: model
+        configuration:
+          wireless:
+            settings:
+              upgrade_strategy: minimizeUpgradeTime
+              meshing: false
+            rf_profiles:
+              - name: Corp wireless rf profile
+                band_selection_type: ssid
+                min_bitrate_type: band
+                per_ssid_settings:
+                  - ssid_name: ${guest_wireless_ssid_name}
+                    band_operation_mode: dual
+                    band_steering: true
+                    bands:
+                      - '2.4'
+                      - '5'
+                  - ssid_name: ${data_wireless_ssid_name}
+                    band_operation_mode: dual
+                    band_steering: true
+                    bands:
+                      - '2.4'
+                      - '5'
+                      - '6'
+                transmission: true
+            ssids:
+              - name: ${data_wireless_ssid_name}
+                auth_mode: 8021x-radius
+                available_on_all_aps: true
+                band_selection: Dual band operation with Band Steering
+                default_vlan_id: 10
+                dot11r:
+                  enabled: true
+                dot11w:
+                  enabled: true
+                  required: false
+                enabled: true
+                encryption_mode: wpa-eap
+                firewall_l3_firewall_rules:
+                  allow_lan_access: true
+                ip_assignment_mode: Bridge mode
+                lan_isolation: false
+                radius:
+                  accounting: true
+                  accounting_servers:
+                    - host: ${radius_accounting_server1_host}
+                      port: 1813
+                      secret: !env secret_password
+                    - host: ${radius_accounting_server2_host}
+                      port: 1813
+                      secret: !env secret_password
+                  attribute_for_group_policies: Filter-Id
+                  coa: false
+                  override: true
+                  servers:
+                    - host: ${radius_server1_host}
+                      port: 1812
+                      secret: !env secret_password
+                    - host: ${radius_server2_host}
+                      port: 1812
+                      secret: !env secret_password
+                  testing: true
+                unavailability_schedules:
+                  enabled: ${data_ssid_schedules_enabled}
+                  ranges:
+                    - start_day: Sunday
+                      start_time: 00:00:00
+                      end_time: 06:00:00
+                      end_day: Sunday
+                    - start_day: Saturday
+                      start_time: 00:00:00
+                      end_time: 06:00:00
+                      end_day: Saturday
+                ssid_number: '0'
+                traffic_shaping_rules:
+                  traffic_shaping: true
+                  default_rules: true
+                use_vlan_tagging: true
+                visible: true
+                wpa_encryption_mode: WPA2 only
+              - name: ${guest_wireless_ssid_name}
+                auth_mode: open
+                available_on_all_aps: true
+                band_selection: Dual band operation
+                default_vlan_id: 50
+                enabled: true
+                firewall_l3_firewall_rules:
+                  allow_lan_access: false
+                ip_assignment_mode: Bridge mode
+                lan_isolation: true
+                mandatory_dhcp: true
+                per_client_bandwidth_limit_down: ${guest_wireless_client_bw_down}
+                per_client_bandwidth_limit_up: ${guest_wireless_client_bw_up}
+                per_ssid_bandwidth_limit_down: ${guest_wireless_ssid_bw_down}
+                per_ssid_bandwidth_limit_up: ${guest_wireless_ssid_bw_up}
+                unavailability_schedules:
+                  enabled: ${guest_ssid_schedules_enabled}
+                  ranges:
+                    - start_day: Sunday
+                      start_time: 00:00:00
+                      end_time: 06:00:00
+                      end_day: Sunday
+                    - start_day: Saturday
+                      start_time: 00:00:00
+                      end_time: 06:00:00
+                      end_day: Saturday
+                splash_page: Click-through splash page
+                splash_settings:
+                  welcome_message: ${guest_ssid_welcome_message}
+                ssid_number: '1'
+                traffic_shaping_rules:
+                  traffic_shaping: true
+                  default_rules: true
+                use_vlan_tagging: true
+                visible: true
+      - name: sdwan_fw
+        type: model
+        configuration:
+          appliance:
+            settings:
+              client_tracking_method: 'MAC address'
+              deployment_mode: routed
+              dynamic_dns:
+                prefix: 'my-network'
+                enabled: true
+            traffic_shaping:
+              # name: "Sample Traffic Shaping Config"
+              global_bandwidth_limits:
+                limit_up: 5000
+                limit_down: 9000
+              rules:
+                rules:
+                  - name: Rule 01
+                    definitions:
+                      # Application categories and applications can be found by running /networks/{networkId}/appliance/firewall/l7FirewallRules/applicationCategories API call
+                      - type: applicationCategory
+                        value: 'meraki:layer7/category/24' # "Databases & cloud services"
+                      - type: application
+                        value: meraki:layer7/application/332 # "Amazon RDS"
+                    per_client_bandwidth_limits:
+                      settings: custom
+                      bandwidth_limits:
+                        limit_up: 1000
+                        limit_down: 1000
+                    dscp_tag_value: 10
+                    priority: high
+                  - name: Rule 02
+                    definitions:
+                      - type: application
+                        value: meraki:layer7/application/332 # "Amazon RDS"
+                    per_client_bandwidth_limits:
+                      settings: ignore
+                    dscp_tag_value: 18
+                    priority: high
+                default_rules: false
+            vlans:
+              - vlan_id: 10
+                name: Data
+                subnet: ${vlan10_subnet}
+                appliance_ip: ${vlan10_appliance_ip}
+                dhcp_handling: 'Run a DHCP server'
+                mandatory_dhcp: false
+              - vlan_id: 20
+                name: Voice
+                subnet: ${vlan20_subnet}
+                appliance_ip: ${vlan20_appliance_ip}
+                dhcp_handling: 'Run a DHCP server'
+                mandatory_dhcp: false
+              - vlan_id: 30
+                name: IoT
+                subnet: ${vlan30_subnet}
+                appliance_ip: ${vlan30_appliance_ip}
+                dhcp_handling: 'Run a DHCP server'
+                mandatory_dhcp: false
+              - vlan_id: 50
+                name: Guest
+                subnet: ${vlan50_subnet}
+                appliance_ip: ${vlan50_appliance_ip}
+                dhcp_handling: 'Run a DHCP server'
+                mandatory_dhcp: false
+              - vlan_id: 999
+                name: Infra
+                subnet: ${vlan999_subnet}
+                appliance_ip: ${vlan999_appliance_ip}
+                dns_nameservers: opendns
+                dhcp_handling: 'Run a DHCP server'
+                dhcp_lease_time: '1 day'
+                dhcp_boot_options: false
+                mandatory_dhcp: false
+            firewall:
+              l3_firewall_rules:
+                rules:
+                  - comment: 'Block Bad Traffic'
+                    policy: deny
+                    protocol: udp
+                    source_port: 1433
+                    source_cidr: Any
+                    destination_port: 1433
+                    destination_cidr: Any
+                  - comment: 'Block SSH'
+                    policy: deny
+                    protocol: tcp
+                    source_port: 22
+                    source_cidr: Any
+                    destination_port: 22
+                    destination_cidr: Any
+              firewalled_services:
+                - service_name: 'ICMP'
+                  access: 'blocked'
+                - service_name: 'web'
+                  access: 'restricted'
+                  allowed_ips:
+                    - '2.2.2.2'
+                    - '3.3.3.3'
+              l7_firewall_rules:
+                - policy: deny
+                  type: applicationCategory
+                  value: 'meraki:layer7/category/27'
+                - policy: deny
+                  type: application
+                  value: 'meraki:layer7/application/106'
+                - policy: deny
+                  type: host
+                  value: 'abc.com'
+                - policy: deny
+                  type: port
+                  value: '161'
+                - policy: deny
+                  type: ipRange
+                  value: '192.168.0.1'
+                - policy: deny
+                  type: ipRange
+                  value: '192.168.0.2:80'
+            content_filtering:
+              allowed_url_patterns:
+                - 'www.cisco.com'
+                - '*.meraki.com'
+              blocked_url_patterns:
+                - www.socialmedia.net
+                - www.example.badsitehere.com
+              blocked_url_categories:
+                - 'meraki:contentFiltering/category/C68'
+                - 'meraki:contentFiltering/category/C69'
+              url_category_list_size: fullList

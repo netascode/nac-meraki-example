@@ -1,0 +1,87 @@
+meraki:
+  domains:
+    - name: EU
+      administrator:
+        name: admin
+      organizations:
+        - name: Meraki Learning Lab
+          managed: true
+          networks:
+            - name: Amsterdam-Network-1                    
+              appliance:
+                settings:
+                  client_tracking_method: "MAC address"
+                  deployment_mode: routed
+                vlans:
+                  - vlan_id: 10
+                    name: "Data"
+                    subnet: 10.1.10.0/24
+                    appliance_ip: 10.1.10.1
+                    dhcp_handling: "Run a DHCP server"
+                    mandatory_dhcp: false
+                  - vlan_id: 20
+                    name: "Voice"
+                    subnet: 10.1.20.0/24
+                    appliance_ip: 10.1.20.1
+                    dhcp_handling: "Run a DHCP server"
+                    mandatory_dhcp: false
+                  - vlan_id: 999
+                    name: "Infra"
+                    subnet: 10.1.255.0/24
+                    appliance_ip: 10.1.255.1
+                    dns_nameservers: opendns
+                    dhcp_handling: "Run a DHCP server"
+                    dhcp_lease_time: "1 day"
+                    dhcp_boot_options: false
+                    mandatory_dhcp: false     
+                traffic_shaping:
+                  # name: "Sample Traffic Shaping Config"
+                  global_bandwidth_limits:
+                     limit_up: 5000
+                     limit_down: 9000
+                  rules:
+                        rules:
+                          - name: Rule 01
+                            definitions:
+                            # Application categories and applications can be found by running /networks/{networkId}/appliance/firewall/l7FirewallRules/applicationCategories API call
+                              - type: applicationCategory
+                                value: "meraki:layer7/category/24" # "Databases & cloud services"
+                              - type: application
+                                value: meraki:layer7/application/332 # "Amazon RDS"
+                            per_client_bandwidth_limits:
+                                settings: custom
+                                bandwidth_limits:
+                                  limit_up: 1000
+                                  limit_down: 1000
+                            dscp_tag_value: 10
+                            priority: high
+                          - name: Rule 02
+                            definitions:
+                              - type: application
+                                value: meraki:layer7/application/332 # "Amazon RDS"
+                            per_client_bandwidth_limits:
+                                settings: ignore
+                            dscp_tag_value: 18
+                            priority: high
+                        default_rules: false             
+                # firewall:
+                #   firewalled_services:
+                #       - service_name: "ICMP"
+                #         access: "blocked"
+                #       - service_name: "web"
+                #         access: "restricted"
+                #         allowed_ips:
+                #           - "2.2.2.2"
+                #           - "3.3.3.3"
+                # content_filtering:
+                #   allowed_url_patterns:
+                #         - "www.cisco.com"
+                #         - "*.meraki.com"
+                #   blocked_url_patterns:
+                #         - www.socialmedia.net
+                #         - www.example.badsitehere.com
+                #   blocked_url_categories:
+                #         - "meraki:contentFiltering/category/C68"
+                #         - "meraki:contentFiltering/category/C69"
+                #   url_category_list_size: fullList      
+  
